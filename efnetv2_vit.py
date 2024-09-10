@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Skripsi EfficientNet V2 S - VIT Encoder Fix.ipynb
+"""
+Model EfficientNet V2 S - VIT Encoder
 """
 
 import torch
