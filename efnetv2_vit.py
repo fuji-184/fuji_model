@@ -182,7 +182,7 @@ def model_report(model, dataloaders, device):
 
     return report
 
-def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None, device):
+def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None, device=None):
 
     training_history = { 'accuracy':[],'loss':[]}
     validation_history = {'accuracy':[],'loss':[]}
