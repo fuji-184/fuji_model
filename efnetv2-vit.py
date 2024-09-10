@@ -15,6 +15,8 @@ from einops.layers.torch import Rearrange
 import time
 import copy
 from sklearn.metrics import classification_report, f1_score
+import psutil
+import os
 
 def get_data_loaders(batch_size, train=False, valid=False, test=False, valid_size=0.5, path_train="", path_val="", path_test=""):
     if train:
@@ -125,6 +127,61 @@ def multiclass_classification_report(model, dataloaders, classes):
 
     return classification_report(y_true, y_pred, digits=4, target_names=class_names)
 
+def get_gpu_utilization():
+    if torch.cuda.is_available():
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], stdout=subprocess.PIPE)
+            gpu_utilization = int(result.stdout.decode().strip())
+            return gpu_utilization
+        except Exception as e:
+            print("Error getting GPU utilization:", e)
+    return None
+
+def model_report(model, dataloaders):
+    y_true = []
+    y_pred = []
+    model.eval()
+    for data, target in dataloaders['test']:
+        y_true += target.tolist()
+        if torch.cuda.is_available():
+            data, target = data.cuda(), target.cuda()
+        with torch.no_grad():
+            output = model(data)
+            _, pred = torch.max(output, 1)
+            y_pred += pred.tolist()
+
+    report = classification_report(y_true, y_pred, digits=4, output_dict=True)
+
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    device = next(model.parameters()).device
+    input_tensor = torch.randn(1, 3, 224, 224).to(device)
+    input_memory = input_tensor.element_size() * input_tensor.nelement()
+    memory_usage = input_memory + sum(p.element_size() * p.nelement() for p in model.parameters())
+
+    start_time = time.time()
+    for _ in range(10):
+        with torch.no_grad():
+            _ = model(input_tensor)
+    end_time = time.time()
+    inference_speed = (end_time - start_time) / 10
+
+    cpu_percent = psutil.cpu_percent()
+
+    gpu_utilization = get_gpu_utilization()
+
+    print(f"Number of parameters: {num_params}")
+    print(f"Memory usage: {memory_usage / 1024 / 1024:.2f} MB")
+    print(f"Inference speed: {inference_speed:.5f} seconds per sample")
+    print(f"CPU Utilization: {cpu_percent}%")
+    if gpu_utilization is not None:
+        print(f"GPU Utilization: {gpu_utilization}%")
+    else:
+        print("GPU Utilization: N/A")
+
+    return report
+
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None):
 
     training_history = { 'accuracy':[],'loss':[]}
@@ -194,6 +251,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloade
     model.load_state_dict(best_model_wts)
     grafik_pelatihan(training_history, validation_history)
     multiclass_classification_report(model, dataloaders, classes)
+    model_report(model, dataloaders)
     return model
 
 class Conv2d(nn.Module):
@@ -574,7 +632,7 @@ def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True,
     (train_loader, train_data_len) = get_data_loaders(16, train=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (val_loader, val_data_len) = get_data_loaders(batch_size=16, valid=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (test_loader, test_data_len) = get_data_loaders(16, test=True, path_train=path_train, path_val=path_val, path_test=path_test)
-    # classes = get_classes(path_train=path_train, path_val=path_val, path_test=path_test)
+    classes = get_classes(path_train=path_train, path_val=path_val, path_test=path_test)
 
     dataloaders = {
         "train":train_loader,
@@ -599,5 +657,5 @@ def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True,
     optimizer = optim.AdamW(model.parameters(), lr=0.0005)
     exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.97)
 
-    model_ft = train_model(model, num_epochs=epochs, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes)
+    model_ft = train_model(model, num_epochs=epochs, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, classes=classes)
     return model_ft
