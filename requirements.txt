@@ -1,5 +1,5 @@
 einops==0.8.0
 matplotlib==3.9.2
 numpy==2.1.1
-torch==2.3.0
-torchvision==0.18.0
+torch @ https://download.pytorch.org/whl/cu121_full/torch-2.4.0%2Bcu121-cp310-cp310-linux_x86_64.whl#sha256=6f3aabcec8b7728943d22bec2d8017b1bd2d69cd903eefb7dd3a373e4f779c40
+torchvision @ https://download.pytorch.org/whl/cu121_full/torchvision-0.19.0%2Bcu121-cp310-cp310-linux_x86_64.whl#sha256=53c7ee4a98c8464ec964a6ab3804f5925b19bac698ef728f148bffebe27a9081
