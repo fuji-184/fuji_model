@@ -632,7 +632,7 @@ def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True,
     (train_loader, train_data_len) = get_data_loaders(16, train=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (val_loader, val_data_len) = get_data_loaders(batch_size=16, valid=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (test_loader, test_data_len) = get_data_loaders(16, test=True, path_train=path_train, path_val=path_val, path_test=path_test)
-    classes = get_classes(path_train=path_train, path_val=path_val, path_test=path_test)
+    classes = get_classes(path_train=path_train)
 
     dataloaders = {
         "train":train_loader,
