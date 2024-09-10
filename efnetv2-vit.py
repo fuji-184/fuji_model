@@ -14,6 +14,7 @@ from einops import rearrange
 from einops.layers.torch import Rearrange
 import time
 import copy
+from sklearn.metrics import classification_report, f1_score
 
 def get_data_loaders(batch_size, train=False, valid=False, test=False, valid_size=0.5, path_train="", path_val="", path_test=""):
     if train:
@@ -59,7 +60,7 @@ def get_classes(path_train):
     all_data = datasets.ImageFolder(path_train)
     return all_data.classes
 
-def grafik_pelatihan():
+def grafik_pelatihan(training_history, validation_history):
   import matplotlib.pyplot as plt
 
   train_accuracy = [acc.item() for acc in training_history['accuracy']]
@@ -91,7 +92,40 @@ def grafik_pelatihan():
   plt.tight_layout()
   plt.show()
 
-def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None):
+def multiclass_classification_report(model, dataloaders, classes):
+    y_true = []
+    y_pred = []
+    class_names = classes
+    model.eval()
+    for data, target in dataloaders['test']:
+        y_true += target.tolist()
+        if torch.cuda.is_available():
+            data, target = data.cuda(), target.cuda()
+        with torch.no_grad():
+            output = model(data)
+            _, pred = torch.max(output, 1)
+            y_pred += pred.tolist()
+
+    report = classification_report(y_true, y_pred, digits=4, target_names=class_names, output_dict=True)
+
+    print("Classification Report:")
+    print(classification_report(y_true, y_pred, digits=4, target_names=class_names))
+
+    f1_scores = [report[key]['f1-score'] for key in class_names]
+    y_pos = np.arange(len(class_names))
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(y_pos, f1_scores, align='center', alpha=0.5)
+    plt.xticks(y_pos, class_names, rotation=45, ha='right')
+    plt.ylabel('F1 Score')
+    plt.xlabel('Class')
+    plt.title('F1 Scores for Each Class')
+    plt.tight_layout()
+    plt.show()
+
+    return classification_report(y_true, y_pred, digits=4, target_names=class_names)
+
+def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None):
 
     training_history = { 'accuracy':[],'loss':[]}
     validation_history = {'accuracy':[],'loss':[]}
@@ -158,7 +192,8 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloade
     print('Best val Acc: {:4f}'.format(best_acc))
 
     model.load_state_dict(best_model_wts)
-    grafik_pelatihan()
+    grafik_pelatihan(training_history, validation_history)
+    multiclass_classification_report(model, dataloaders, classes)
     return model
 
 class Conv2d(nn.Module):
