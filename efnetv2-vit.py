@@ -59,6 +59,38 @@ def get_classes(path_train):
     all_data = datasets.ImageFolder(path_train)
     return all_data.classes
 
+def grafik_pelatihan():
+  import matplotlib.pyplot as plt
+
+  train_accuracy = [acc.item() for acc in training_history['accuracy']]
+  train_loss = training_history['loss']
+
+  val_accuracy = [acc.item() for acc in validation_history['accuracy']]
+  val_loss = validation_history['loss']
+
+  epochs = range(1, len(train_accuracy) + 1)
+
+  plt.figure(figsize=(14, 5))
+
+  plt.subplot(1, 2, 1)
+  plt.plot(epochs, train_accuracy, 'bo-', label='Training Accuracy')
+  plt.plot(epochs, val_accuracy, 'ro-', label='Validation Accuracy')
+  plt.title('Training and Validation Accuracy')
+  plt.xlabel('Epochs')
+  plt.ylabel('Accuracy')
+  plt.legend()
+
+  plt.subplot(1, 2, 2)
+  plt.plot(epochs, train_loss, 'bo-', label='Training Loss')
+  plt.plot(epochs, val_loss, 'ro-', label='Validation Loss')
+  plt.title('Training and Validation Loss')
+  plt.xlabel('Epochs')
+  plt.ylabel('Loss')
+  plt.legend()
+
+  plt.tight_layout()
+  plt.show()
+
 def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, device, num_epochs=25):
     training_history = {'accuracy':[],'loss':[]}
     validation_history = {'accuracy':[],'loss':[]}
@@ -125,6 +157,7 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
     print('Best val Acc: {:4f}'.format(best_acc))
 
     model.load_state_dict(best_model_wts)
+    grafik_pelatihan()
     return model
 
 class Conv2d(nn.Module):
@@ -535,5 +568,5 @@ def latih_model(model, path_train, path_val, path_test, buat_model=True, jumlah_
         device = torch.device("cuda" if torch.cuda. is_available() else 'cpu')
         model = model.to(device)
 
-    model_ft = train_model(model=model, criterion=criterion, optimizer=optimizer, scheduler=scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, device=device, num_epochs=2)
+    model_ft = train_model(model=model, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, device=device, num_epochs=2)
     return model_ft
