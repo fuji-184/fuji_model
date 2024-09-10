@@ -138,7 +138,7 @@ def get_gpu_utilization():
             print("Error getting GPU utilization:", e)
     return None
 
-def model_report(model, dataloaders):
+def model_report(model, dataloaders, device):
     y_true = []
     y_pred = []
     model.eval()
@@ -182,7 +182,7 @@ def model_report(model, dataloaders):
 
     return report
 
-def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None):
+def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None, classes=None, device):
 
     training_history = { 'accuracy':[],'loss':[]}
     validation_history = {'accuracy':[],'loss':[]}
@@ -251,7 +251,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloade
     model.load_state_dict(best_model_wts)
     grafik_pelatihan(training_history, validation_history)
     multiclass_classification_report(model, dataloaders, classes)
-    model_report(model, dataloaders)
+    model_report(model, dataloaders, device)
     return model
 
 class Conv2d(nn.Module):
@@ -657,5 +657,5 @@ def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True,
     optimizer = optim.AdamW(model.parameters(), lr=0.0005)
     exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.97)
 
-    model_ft = train_model(model, num_epochs=epochs, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, classes=classes)
+    model_ft = train_model(model, num_epochs=epochs, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, classes=classes, device=device)
     return model_ft
