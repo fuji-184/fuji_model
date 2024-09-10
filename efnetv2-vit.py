@@ -91,8 +91,9 @@ def grafik_pelatihan():
   plt.tight_layout()
   plt.show()
 
-def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, device, num_epochs=25):
-    training_history = {'accuracy':[],'loss':[]}
+def train_model(model, criterion, optimizer, scheduler, num_epochs=25, dataloaders=None, dataset_sizes=None):
+
+    training_history = { 'accuracy':[],'loss':[]}
     validation_history = {'accuracy':[],'loss':[]}
 
     since = time.time()
@@ -534,7 +535,7 @@ def buat_model(jumlah_kelas):
     model = model.to(device)
     return model
 
-def latih_model(model, path_train, path_val, path_test, buat_model=True, jumlah_kelas=1):
+def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True, jumlah_kelas=1):
     (train_loader, train_data_len) = get_data_loaders(16, train=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (val_loader, val_data_len) = get_data_loaders(batch_size=16, valid=True, path_train=path_train, path_val=path_val, path_test=path_test)
     (test_loader, test_data_len) = get_data_loaders(16, test=True, path_train=path_train, path_val=path_val, path_test=path_test)
@@ -552,6 +553,7 @@ def latih_model(model, path_train, path_val, path_test, buat_model=True, jumlah_
     }
     
     device = torch.device("cuda" if torch.cuda. is_available() else 'cpu')
+    model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.to(device)
@@ -559,14 +561,8 @@ def latih_model(model, path_train, path_val, path_test, buat_model=True, jumlah_
     for param in model.parameters():
         param.requires_grad = True
 
-    optimizer = optim. AdamW(model.parameters(), lr=0.0005)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0005)
     exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.97)
-    
-    if buat_model:
-        model = EfficientNetV2_VitEncoder(num_classes=jumlah_kelas)
 
-        device = torch.device("cuda" if torch.cuda. is_available() else 'cpu')
-        model = model.to(device)
-
-    model_ft = train_model(model=model, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes, device=device, num_epochs=2)
+    model_ft = train_model(model, num_epochs=epochs, criterion=criterion, optimizer=optimizer, scheduler=exp_lr_scheduler, dataloaders=dataloaders, dataset_sizes=dataset_sizes)
     return model_ft
