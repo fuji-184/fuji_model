@@ -356,6 +356,7 @@ class MBConv(nn.Module):
 
     if expansion > 1:
       expansion = int(in_chan * expansion)
+
       self.conv = nn.Sequential(
           Conv2d(in_chan, expansion, kernel_size=1, padding=0, stride=1),
           Conv2d(expansion, expansion, kernel_size=kernel_size, stride=stride, padding=padding, groups=expansion),
@@ -448,7 +449,7 @@ class MBConv_Layers(nn.Module):
 
       if self.out_chan is not None:
         x = self.up_chan(x)
-          
+
       return x
 
 class RMSNorm(nn.Module):
