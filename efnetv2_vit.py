@@ -384,32 +384,19 @@ class MBConv(nn.Module):
     return x
 
 class Embedding(nn.Module):
-  def __init__(self, in_chan, embed_dim, kernel_size=8, stride=8, padding=0, expansion=1):
+  def __init__(self, in_chan, embed_dim, kernel_size=16, stride=8, padding=0, expansion=1):
     super().__init__()
     self.conv = Fused_MBConv(in_chan, embed_dim, kernel_size=kernel_size, stride=stride, padding=padding)
-
   def forward(self, x):
-    b, c, h, w = x.shape
     x = self.conv(x)
-    x = rearrange(x, 'b c h w -> b (h w) c')
-
     return x
 
 class Repatch(nn.Module):
-    def __init__(self, in_chan, out_chan, kernel_size=3, stride=2, padding=0):
+    def __init__(self, in_chan, out_chan, kernel_size=5, stride=2, padding=0):
         super().__init__()
-
         self.conv = MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding)
-
     def forward(self, x):
-      _, n, _ = x.shape
-      h = w = int(n**0.5)
-      x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
-
       x = self.conv(x)
-
-      x = rearrange(x, 'b c h w -> b (h w) c')
-
       return x
 
 class Fused_MBConv_Layers(nn.Module):
@@ -457,76 +444,95 @@ class MBConv_Layers(nn.Module):
 
     def forward(self, x):
 
-      _, n, _ = x.shape
-      h = w = int(n**0.5)
-      x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
-
       x = self.mbconv(x)
 
       if self.out_chan is not None:
         x = self.up_chan(x)
-
-      x = rearrange(x, 'b c h w -> b (h w) c')
-
+          
       return x
 
-class MultiHeadAttention(nn.Module):
-  def __init__(self, in_dim, num_heads=8, kernel_size=3, dropout=0.1):
+class RMSNorm(nn.Module):
+  def __init__(self,  dim, eps=1e-6):
     super().__init__()
-    padding = (kernel_size - 1)//2
-    self.forward_conv = self.forward_conv
-    self.num_heads = num_heads
-    self.head_dim = in_dim // num_heads
-    self.conv = nn.Sequential(
-        nn.Conv2d(in_dim, in_dim, kernel_size=1, padding=0),
-        Rearrange('b c h w -> b (h w) c'),
-    )
-    self.att_drop = nn.Dropout(dropout)
-
-  def forward_conv(self, x):
-    B, hw, C = x.shape
-    H = W = int(x.shape[1]**0.5)
-    x = rearrange(x, 'b (h w) c -> b c h w', h=H, w=W)
-
-    q = self.conv(x)
-    k = self.conv(x)
-    v = self.conv(x)
-
-    return q, k, v
+    self.eps = eps
+    self.weight = nn.Parameter(torch.ones(1, dim, 1, 1))
 
   def forward(self, x):
+    x = x * torch.rsqrt(x.pow(2).mean(dim=1, keepdim=True) + self.eps)
+    return x * self.weight
 
-    q, k, v = self.forward_conv(x)
+class MultiHeadAttention(nn.Module):
+    def __init__(self, in_dim, out_dim=None, num_query_heads=8, num_kv_heads=2, dropout=0.2):
+        super().__init__()
+        assert num_query_heads % num_kv_heads == 0, "num_query_heads must be divisible by num_kv_heads"
 
-    q = rearrange(x, 'b t (d H) -> b H t d', H=self.num_heads)
-    k = rearrange(x, 'b t (d H) -> b H t d', H=self.num_heads)
-    v = rearrange(x, 'b t (d H) -> b H t d', H=self.num_heads)
+        self.num_query_heads = num_query_heads
+        self.num_kv_heads = num_kv_heads
+        self.num_queries_per_kv = num_query_heads // num_kv_heads
+        self.head_dim = in_dim // num_query_heads
 
-    att_score = q@k.transpose(2, 3)/self.num_heads**0.5
-    att_score = F.softmax(att_score, dim=-1)
-    att_score = self.att_drop(att_score)
+        self.convq = nn.Conv2d(in_dim, in_dim, kernel_size=1)
 
-    x = att_score@v
+        kv_dim = (in_dim // num_query_heads) * num_kv_heads
+        self.kv_dim = kv_dim
+        self.convk = nn.Conv2d(in_dim, kv_dim, kernel_size=1)
+        self.convv = nn.Conv2d(in_dim, kv_dim, kernel_size=1)
 
-    x = rearrange(x, 'b H t d -> b t (H d)')
+        self.q_norm = RMSNorm(in_dim)
+        self.k_norm = RMSNorm(kv_dim)
+        self.att_drop = nn.Dropout(dropout)
 
-    return x, att_score
+    def forward(self, x):
+        b, _, h, w = x.shape
+
+        q = self.convq(x)
+        q = self.q_norm(q)
+
+        k = self.convk(x)
+        k = self.k_norm(k)
+
+        v = self.convv(x)
+
+        q = rearrange(q, "b (nh hd) h w -> b nh (h w) hd", nh=self.num_query_heads)
+        k = rearrange(k, "b (nh hd) h w -> b nh (h w) hd", nh=self.num_kv_heads)
+        v = rearrange(v, "b (nh hd) h w -> b nh (h w) hd", nh=self.num_kv_heads)
+
+        k = k.repeat_interleave(self.num_queries_per_kv, dim=1)
+        v = v.repeat_interleave(self.num_queries_per_kv, dim=1)
+
+        att_score = (q * (self.head_dim ** -0.5)) @ k.transpose(2, 3)
+        att_score = F.softmax(att_score, dim=-1)
+        att_score = self.att_drop(att_score)
+        x = att_score @ v
+
+        x = rearrange(x, 'b nh (h w) hd -> b (nh hd) h w', h=h, w=w)
+
+        return x
+
+class FFN(nn.Module):
+  def __init__(self, dim):
+    super().__init__()
+    self.dim = dim
+    hidden_dim = int(dim * 2)
+    hidden_dim = int(2 * hidden_dim/3)
+    multiple_of = 256
+    hidden_dim = multiple_of * ((hidden_dim + multiple_of -1) // multiple_of)
+    self.w1 = nn.Conv2d(dim, hidden_dim, kernel_size=1)
+    self.w2 = nn.Conv2d(hidden_dim, dim, kernel_size=1)
+    self.w3 = nn.Parameter(torch.ones(1, hidden_dim, 1, 1))
+
+  def forward(self, x):
+    return self.w2(F.silu(self.w1(x) * self.w3))
 
 class Encoder(nn.Module):
-  def __init__(self, embed_dim, num_heads=8, dropout=0.1):
+  def __init__(self, embed_dim, num_heads=8, dropout=0.2, ffn_expansion=2, sd_prob=0.8):
     super().__init__()
-    self.norm1 = nn.LayerNorm(embed_dim)
+    self.norm1 = RMSNorm(embed_dim)
     self.mhsa = MultiHeadAttention(embed_dim, dropout=dropout)
-    self.dropout = nn.Dropout(dropout)
-    self.norm2 = nn.LayerNorm(embed_dim)
-
-    self.ffn = nn.Sequential(
-        nn.Conv2d(embed_dim, int(embed_dim*2), kernel_size=1),
-        nn.GELU(),
-        nn.Dropout(dropout),
-        nn.Conv2d(int(embed_dim*2), embed_dim, kernel_size=1),
-        nn.Dropout(dropout),
-    )
+    self.dropout = StochasticDepth(sd_prob)
+    self.dropout2 = nn.Dropout(dropout)
+    self.norm2 = RMSNorm(embed_dim)
+    self.ffn = FFN(embed_dim)
 
   def forward(self, x):
 
@@ -534,7 +540,7 @@ class Encoder(nn.Module):
 
     x = self.norm1(x)
 
-    x, attn_score = self.mhsa(x)
+    x = self.mhsa(x)
 
     x = residu + self.dropout(x)
 
@@ -542,83 +548,79 @@ class Encoder(nn.Module):
 
     x = self.norm2(x)
 
-    B, hw, C = x.shape
-
-    H = W = int(x.shape[1]**0.5)
-    x = rearrange(x, 'b (h w) c -> b c h w', h=H, w=W)
-
     x = self.ffn(x)
 
-    x = rearrange(x, 'b c h w -> b (h w) c')
+    x = residu + self.dropout2(x)
 
-    x = residu + x
-
-    return x, attn_score
+    return x
 
 class Encoder_Layers(nn.Module):
-  def __init__(self, embed_dim, num_heads=8, dropout=0.1, jumlah=0):
+  def __init__(self, embed_dim, num_heads=8, dropout=0.2, jumlah=0, ffn_expansion=2, sd_prob=0.8):
     super().__init__()
     if jumlah > 0:
-      self.encoder_layers = nn.ModuleList([
-            Encoder(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout)
-            for _ in range(jumlah)
-        ])
+      self.encoder_layers = nn.ModuleList()
+      for _ in range(jumlah):
+          encoder = Encoder(
+              embed_dim=embed_dim,
+              num_heads=num_heads,
+              dropout=dropout,
+              ffn_expansion=ffn_expansion,
+              sd_prob=sd_prob
+          )
+          self.encoder_layers.append(encoder)
+
     else:
       self.encoder_layers = nn.Identity()
 
   def forward(self, x):
 
-    attn_scores = []
     for encoder in self.encoder_layers:
-      x, attn_score = encoder(x)
-      attn_scores.append(attn_score)
+      x = encoder(x)
 
-    return x, attn_scores
+    return x
 
 class EfficientNetV2_VitEncoder(nn.Module):
-  def __init__(self, num_classes, embed_dim=192, num_heads=8, patch_size=16, dropout=0.1):
+  def __init__(self, num_classes, embed_dim=192, num_heads=8, patch_size=16, dropout=0.2, expansion=2, ffn_expansion=2,
+               repatch_expansion=1, embedding_expansion=1, embedding_stride=8):
     super().__init__()
     self.conv = nn.Sequential(
         Conv2d(3, 24, stride=2),
-        Fused_MBConv(24, 32, stride=1, expansion=1),
+        Fused_MBConv(24, 32, stride=1, expansion=2),
     )
-    self.embedding = Embedding(32, embed_dim, kernel_size=patch_size, stride=patch_size//2, padding=0)
+    self.embedding = Embedding(32, embed_dim, kernel_size=patch_size, stride=embedding_stride, padding=0, embedding_expansion=embedding_expansion, sd_prob=0.8)
     self.layers = nn.ModuleList([
-        Encoder_Layers(embed_dim, num_heads=num_heads, dropout=dropout, jumlah=3),
-        MBConv_Layers(embed_dim, kernel_size=3, padding=1, jumlah=6, expansion=2),
+        Encoder_Layers(embed_dim, num_heads=num_heads, dropout=dropout, jumlah=3, ffn_expansion=2, sd_prob=0.8),
+        MBConv_Layers(embed_dim, kernel_size=3, padding=1, jumlah=3, expansion=2, sd_prob=0.8),
 
-        Repatch(embed_dim, embed_dim*2, kernel_size=5, stride=2, padding=0),
+        Repatch(embed_dim, embed_dim*2, kernel_size=5, stride=2, padding=0, repatch_expansion=repatch_expansion, sd_prob=0.8),
 
-        Encoder_Layers(embed_dim*2, num_heads=num_heads, dropout=dropout, jumlah=6),
-        MBConv_Layers(embed_dim*2, kernel_size=3, padding=1, jumlah=6, expansion=2),
+        Encoder_Layers(embed_dim*2, num_heads=num_heads, dropout=dropout, jumlah=6, ffn_expansion=2, sd_prob=0.8),
+        MBConv_Layers(embed_dim*2, kernel_size=3, padding=1, jumlah=6, expansion=2, sd_prob=0.8),
 
-        Repatch(embed_dim*2, embed_dim*2*2, kernel_size=3, stride=1, padding=0),
-
-        Encoder_Layers(embed_dim*2*2, num_heads=num_heads, dropout=dropout, jumlah=2),
+        Repatch(embed_dim*2, embed_dim*2*2, kernel_size=3, stride=2, padding=0, repatch_expansion=repatch_expansion, sd_prob=0.8),
+        Encoder_Layers(embed_dim*2*2, num_heads=num_heads, dropout=dropout, jumlah=2, ffn_expansion=2, sd_prob=0.8),
     ])
+
     self.pool = nn.AdaptiveAvgPool1d(1)
-    self.head = nn.Linear(embed_dim*2*2, num_classes)
+    self.head = nn.Sequential(
+        nn.Dropout(dropout, inplace=True),
+        nn.Linear(embed_dim*2*2, num_classes)
+    )
 
   def forward(self, x):
     x = self.conv(x)
     x = self.embedding(x)
-    n = x.shape[0]
-
-    attn_scores = []
 
     for layer in self.layers:
-      if isinstance(layer, Encoder_Layers):
-        x, attn_score = layer(x)
-        attn_scores.extend(attn_score)
-      else:
-        x = layer(x)
-    x = rearrange(x, "b s d -> b d s")
+      x = layer(x)
+
+    x = rearrange(x, "b c h w -> b c (h w)")
 
     x = self.pool(x)
+
     x = x.squeeze(-1)
 
     x = self.head(x)
-    attn_w = None
 
     return x
 
