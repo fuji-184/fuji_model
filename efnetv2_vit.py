@@ -406,7 +406,7 @@ class Fused_MBConv_Layers(nn.Module):
         if jumlah > 0:
             fused_mbconv_layers = []
             for _ in range(jumlah):
-                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob))
+                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob))
             self.fused_mbconv = nn.Sequential(*fused_mbconv_layers)
         else:
             self.fused_mbconv = nn.Identity()
