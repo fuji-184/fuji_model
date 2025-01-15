@@ -318,7 +318,7 @@ class SE(nn.Module):
     return input * x
 
 class Fused_MBConv(nn.Module):
-  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=2, padding=1):
+  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=2, padding=1, sd_prob=0.8):
     super().__init__()
     self.skip_conn = (in_chan == out_chan) and (stride == 1)
 
@@ -335,7 +335,7 @@ class Fused_MBConv(nn.Module):
           SE(out_chan)
       )
 
-    self.sd = StochasticDepth()
+    self.sd = StochasticDepth(sd_prob)
 
   def forward(self, x):
 
@@ -350,7 +350,7 @@ class Fused_MBConv(nn.Module):
     return x
 
 class MBConv(nn.Module):
-  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=1, padding=1):
+  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=1, padding=1, sd_prob):
     super().__init__()
     self.skip_conn = (in_chan == out_chan) and (stride == 1)
 
@@ -369,7 +369,7 @@ class MBConv(nn.Module):
           Conv2d(in_chan, out_chan, kernel_size=1, padding=0, stride=1, with_act=False)
       )
 
-    self.sd = StochasticDepth()
+    self.sd = StochasticDepth(sd_prob)
 
   def forward(self, x):
 
@@ -400,13 +400,13 @@ class Repatch(nn.Module):
       return x
 
 class Fused_MBConv_Layers(nn.Module):
-    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False):
+    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False, sd_prob):
         super().__init__()
 
         if jumlah > 0:
             fused_mbconv_layers = []
             for _ in range(jumlah):
-                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion))
+                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob))
             self.fused_mbconv = nn.Sequential(*fused_mbconv_layers)
         else:
             self.fused_mbconv = nn.Identity()
@@ -415,7 +415,7 @@ class Fused_MBConv_Layers(nn.Module):
         if downsample:
           stride = 2
         if out_chan is not None:
-            self.up_chan = Fused_MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion)
+            self.up_chan = Fused_MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob)
 
     def forward(self, x):
 
@@ -427,20 +427,20 @@ class Fused_MBConv_Layers(nn.Module):
       return x
 
 class MBConv_Layers(nn.Module):
-    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0):
+    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, sd_prob=0.8):
         super().__init__()
 
         if jumlah > 0:
             mbconv_layers = []
             for _ in range(jumlah):
-                mbconv_layers.append(MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion))
+                mbconv_layers.append(MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob))
             self.mbconv = nn.Sequential(*mbconv_layers)
         else:
             self.mbconv = nn.Identity()
 
         self.out_chan = out_chan
         if out_chan is not None:
-            self.up_chan = MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion)
+            self.up_chan = MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob)
 
     def forward(self, x):
 
