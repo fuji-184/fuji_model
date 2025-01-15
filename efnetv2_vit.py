@@ -400,7 +400,7 @@ class Repatch(nn.Module):
       return x
 
 class Fused_MBConv_Layers(nn.Module):
-    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False, sd_prob):
+    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False, sd_prob=0.8):
         super().__init__()
 
         if jumlah > 0:
