@@ -269,6 +269,7 @@ class Conv2d(nn.Module):
       self.act = nn.SiLU()
 
   def forward(self, x):
+
     x = self.conv(x)
 
     if self.with_bn:
@@ -290,6 +291,7 @@ class StochasticDepth(nn.Module):
 
     def forward(self, x):
 
+
         if not self.training:
             return x
 
@@ -302,9 +304,9 @@ class SE(nn.Module):
     super().__init__()
     self.squeeze = nn.AdaptiveAvgPool2d(1)
     self.excitation = nn.Sequential(
-        nn.Conv2d(in_chan, int(in_chan//r), kernel_size=1, padding=0),
+        nn.Conv2d(in_chan, in_chan // r, kernel_size=1, padding=0),
         nn.SiLU(),
-        nn.Conv2d(int(in_chan//r), in_chan, kernel_size=1, padding=0),
+        nn.Conv2d(in_chan // r, in_chan, kernel_size=1, padding=0),
         nn.Sigmoid()
     )
 
@@ -384,49 +386,6 @@ class MBConv(nn.Module):
 
     return x
 
-class Embedding(nn.Module):
-  def __init__(self, in_chan, embed_dim, kernel_size=16, stride=8, padding=0, sd_prob=0.8):
-    super().__init__()
-    self.conv = Fused_MBConv(in_chan, embed_dim, kernel_size=kernel_size, stride=stride, padding=padding, sd_prob=sd_prob)
-  def forward(self, x):
-    x = self.conv(x)
-    return x
-
-class Repatch(nn.Module):
-    def __init__(self, in_chan, out_chan, kernel_size=5, stride=2, padding=0, sd_prob=0.8):
-        super().__init__()
-        self.conv = MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, sd_prob=sd_prob)
-    def forward(self, x):
-      x = self.conv(x)
-      return x
-
-class Fused_MBConv_Layers(nn.Module):
-    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False, sd_prob=0.8):
-        super().__init__()
-
-        if jumlah > 0:
-            fused_mbconv_layers = []
-            for _ in range(jumlah):
-                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob))
-            self.fused_mbconv = nn.Sequential(*fused_mbconv_layers)
-        else:
-            self.fused_mbconv = nn.Identity()
-
-        self.out_chan = out_chan
-        if downsample:
-          stride = 2
-        if out_chan is not None:
-            self.up_chan = Fused_MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion, sd_prob=sd_prob)
-
-    def forward(self, x):
-
-      x = self.fused_mbconv(x)
-
-      if self.out_chan is not None:
-        x = self.up_chan(x)
-
-      return x
-
 class MBConv_Layers(nn.Module):
     def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, sd_prob=0.8):
         super().__init__()
@@ -446,6 +405,55 @@ class MBConv_Layers(nn.Module):
     def forward(self, x):
 
       x = self.mbconv(x)
+
+      if self.out_chan is not None:
+        x = self.up_chan(x)
+
+      return x
+
+class Embedding(nn.Module):
+  def __init__(self, in_chan, embed_dim, kernel_size=8, stride=8, padding=0, embedding_expansion=1, sd_prob=0.8):
+    super().__init__()
+    self.conv = MBConv(in_chan, embed_dim, kernel_size=kernel_size, stride=stride, padding=padding, expansion=embedding_expansion, sd_prob=sd_prob)
+
+  def forward(self, x):
+    x = self.conv(x)
+
+    return x
+
+class Repatch(nn.Module):
+    def __init__(self, in_chan, out_chan, kernel_size=3, stride=2, padding=0, repatch_expansion=1, sd_prob=0.8):
+        super().__init__()
+
+        self.conv = MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=repatch_expansion, sd_prob=sd_prob)
+
+    def forward(self, x):
+
+      x = self.conv(x)
+
+      return x
+
+class Fused_MBConv_Layers(nn.Module):
+    def __init__(self, in_chan, out_chan=None, kernel_size=3, stride=1, padding=1, expansion=1, jumlah=0, downsample=False):
+        super().__init__()
+
+        if jumlah > 0:
+            fused_mbconv_layers = []
+            for _ in range(jumlah):
+                fused_mbconv_layers.append(Fused_MBConv(in_chan, in_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion))
+            self.fused_mbconv = nn.Sequential(*fused_mbconv_layers)
+        else:
+            self.fused_mbconv = nn.Identity()
+
+        self.out_chan = out_chan
+        if downsample:
+          stride = 2
+        if out_chan is not None:
+            self.up_chan = Fused_MBConv(in_chan, out_chan, kernel_size=kernel_size, stride=stride, padding=padding, expansion=expansion)
+
+    def forward(self, x):
+
+      x = self.fused_mbconv(x)
 
       if self.out_chan is not None:
         x = self.up_chan(x)
@@ -581,23 +589,24 @@ class Encoder_Layers(nn.Module):
     return x
 
 class EfficientNetV2_VitEncoder(nn.Module):
-  def __init__(self, num_classes, embed_dim=192, num_heads=8, patch_size=16, dropout=0.2, expansion=2, ffn_expansion=2, embedding_stride=8):
+  def __init__(self, num_classes, embed_dim=192, num_heads=8, patch_size=16, dropout=0.2, expansion=2, ffn_expansion=2,
+               repatch_expansion=1, embedding_expansion=1, embedding_stride=8):
     super().__init__()
     self.conv = nn.Sequential(
         Conv2d(3, 24, stride=2),
         Fused_MBConv(24, 32, stride=1, expansion=2),
     )
-    self.embedding = Embedding(32, embed_dim, kernel_size=patch_size, stride=embedding_stride, padding=0, sd_prob=0.8)
+    self.embedding = Embedding(32, embed_dim, kernel_size=patch_size, stride=embedding_stride, padding=0, embedding_expansion=embedding_expansion, sd_prob=0.8)
     self.layers = nn.ModuleList([
         Encoder_Layers(embed_dim, num_heads=num_heads, dropout=dropout, jumlah=3, ffn_expansion=2, sd_prob=0.8),
         MBConv_Layers(embed_dim, kernel_size=3, padding=1, jumlah=3, expansion=2, sd_prob=0.8),
 
-        Repatch(embed_dim, embed_dim*2, kernel_size=5, stride=2, padding=0, sd_prob=0.8),
+        Repatch(embed_dim, embed_dim*2, kernel_size=5, stride=2, padding=0, repatch_expansion=repatch_expansion, sd_prob=0.8),
 
         Encoder_Layers(embed_dim*2, num_heads=num_heads, dropout=dropout, jumlah=6, ffn_expansion=2, sd_prob=0.8),
         MBConv_Layers(embed_dim*2, kernel_size=3, padding=1, jumlah=6, expansion=2, sd_prob=0.8),
 
-        Repatch(embed_dim*2, embed_dim*2*2, kernel_size=3, stride=2, padding=0, sd_prob=0.8),
+        Repatch(embed_dim*2, embed_dim*2*2, kernel_size=3, stride=2, padding=0, repatch_expansion=repatch_expansion, sd_prob=0.8),
         Encoder_Layers(embed_dim*2*2, num_heads=num_heads, dropout=dropout, jumlah=2, ffn_expansion=2, sd_prob=0.8),
     ])
 
@@ -625,7 +634,7 @@ class EfficientNetV2_VitEncoder(nn.Module):
     return x
 
 def buat_model(jumlah_kelas):
-    model = EfficientNetV2_VitEncoder(num_classes=jumlah_kelas)
+    model = EfficientNetV2_VitEncoder(embed_dim=192, num_heads=8, num_classes=jumlah_kelas, patch_size=16, expansion=2, ffn_expansion=2, repatch_expansion=1, embedding_expansion=1, embedding_stride=8)
 
     device = torch.device("cuda" if torch.cuda. is_available() else 'cpu')
     model = model.to(device)
@@ -647,7 +656,7 @@ def latih_model(model, epochs, path_train, path_val, path_test, buat_model=True,
         "val": val_data_len,
         "test": test_data_len
     }
-    
+
     device = torch.device("cuda" if torch.cuda. is_available() else 'cpu')
     model = model.to(device)
 
