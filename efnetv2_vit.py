@@ -350,7 +350,7 @@ class Fused_MBConv(nn.Module):
     return x
 
 class MBConv(nn.Module):
-  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=1, padding=1, sd_prob):
+  def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, expansion=1, padding=1, sd_prob=0.8):
     super().__init__()
     self.skip_conn = (in_chan == out_chan) and (stride == 1)
 
